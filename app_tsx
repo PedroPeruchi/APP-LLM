@@ -2,14 +2,9 @@
 
 import { useState } from 'react'
 import {
-  ArrowLeft,
-  ArrowRight,
-  Bot,
-  Check,
   ChevronRight,
   Code2,
   Command,
-  Send,
   Sparkles,
   Timer,
 } from 'lucide-react'
@@ -20,20 +15,6 @@ import { FeedbackScreen } from './feedback-screen'
 
 type Experience = 'Estágio' | 'Júnior' | 'Pleno'
 type Screen = 'setup' | 'interview' | 'feedback'
-
-const interviewQuestions = [
-  'Legal! Para começar, como você explicaria a diferença entre uma lista e uma pilha? Em que situação escolheria cada estrutura?',
-  'Imagine que uma API começou a responder lentamente. Como você investigaria o problema antes de propor uma solução?',
-  'O que acontece quando duas threads tentam acessar e alterar o mesmo recurso ao mesmo tempo? Como você evitaria inconsistências?',
-  'Como você costuma testar uma função que depende de um serviço externo, como um banco de dados ou uma API?',
-]
-
-const recruiterReplies = [
-  'Boa linha de raciocínio. Vamos aprofundar um pouco mais nesse tema.',
-  'Entendi. Obrigado por explicar seu processo — vamos para a próxima.',
-  'Ótimo ponto. Agora quero explorar como você aplicaria isso no dia a dia.',
-  'Obrigado pela resposta! Tenho mais uma pergunta para fechar a conversa.',
-]
 
 export function TechMockApp() {
   const [screen, setScreen] = useState<Screen>('setup')
@@ -58,31 +39,67 @@ export function TechMockApp() {
     setScreen('interview')
   }
 
-  function sendAnswer(text: string) {
+  async function sendAnswer(text: string) {
     const answer = text.trim()
     if (!answer || replyCount >= 5 || isTyping) return
 
     const nextReplyCount = replyCount + 1
-    setMessages((current) => [
-      ...current,
-      { id: Date.now(), role: 'candidate', text: answer },
-    ])
+    const nextMessages = [
+      ...messages,
+      { id: Date.now(), role: 'candidate' as const, text: answer },
+    ]
+    setMessages(nextMessages)
     setReplyCount(nextReplyCount)
 
     if (nextReplyCount < 5) {
       setIsTyping(true)
-      window.setTimeout(() => {
-        const questionIndex = nextReplyCount - 1
+
+      try {
+        const response = await fetch('/api/interview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            role,
+            technologies,
+            experience,
+            messages: nextMessages.map(({ role: messageRole, text: messageText }) => ({
+              role: messageRole,
+              text: messageText,
+            })),
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error('A geração da próxima pergunta falhou.')
+        }
+
+        const data: unknown = await response.json()
+        const reply =
+          data && typeof data === 'object' && 'reply' in data && typeof data.reply === 'string'
+            ? data.reply.trim()
+            : ''
+
+        if (!reply) {
+          throw new Error('A resposta da entrevista veio vazia.')
+        }
+
+        setMessages((current) => [
+          ...current,
+          { id: Date.now() + 1, role: 'recruiter', text: reply },
+        ])
+      } catch {
         setMessages((current) => [
           ...current,
           {
             id: Date.now() + 1,
             role: 'recruiter',
-            text: `${recruiterReplies[questionIndex]} ${interviewQuestions[questionIndex]}`,
+            text: 'Tivemos um problema temporário ao gerar a próxima pergunta. Sua resposta foi registrada; tente continuar em instantes.',
           },
         ])
+      } finally {
         setIsTyping(false)
-      }, 850)
+      }
     }
   }
 
